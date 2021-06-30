@@ -12,7 +12,7 @@ const baseFile: ZipFileDescription = Object.freeze({ bytes: new Uint8Array(zipSp
 
 Deno.test("the ZIP fileHeader function makes file headers", () => {
   const file = {...baseFile}
-  const actual = fileHeader(file)
+  const actual = fileHeader(file, false)
   const expected = BufferFromHex("504b03042d000800000000109a4e0000000000000000000000000b000000")
   assertEquals(actual, expected)
 })
@@ -50,7 +50,7 @@ Deno.test("the ZIP dataDescriptor function makes ZIP64 data descriptors", () => 
 Deno.test("the ZIP centralHeader function makes central record file headers", () => {
   const file = {...baseFile, uncompressedSize: 0x10203040n, crc: 0x12345678}
   const offset = 0x01020304n
-  const actual = centralHeader(file, offset, false)
+  const actual = centralHeader(file, offset, false, false)
   const expected = BufferFromHex("504b01022d032d000800000000109a4e7856341240302010403020100b0000000000000000000000b48104030201")
   assertEquals(actual, expected)
 })
@@ -58,7 +58,7 @@ Deno.test("the ZIP centralHeader function makes central record file headers", ()
 Deno.test("the ZIP centralHeader function makes ZIP64 central record file headers", () => {
   const file = {...baseFile, uncompressedSize: 0x110203040n, crc: 0x12345678}
   const offset = 0x101020304n
-  const actual = centralHeader(file, offset, true)
+  const actual = centralHeader(file, offset, true, false)
   const expected = BufferFromHex("504b01022d032d000800000000109a4e78563412ffffffffffffffff0b001c000000000000000000b481ffffffff")
   assertEquals(actual, expected)
 })
@@ -72,8 +72,8 @@ Deno.test("the ZIP zip64ExtraField function makes Zip64 extra fields", () => {
 })
 
 Deno.test("the ZIP unicodePathExtraField function makes unicode path extra field", () => {
-  const file = {...baseFile, utf8: new TextEncoder().encode("ÀPPNôTE.TXT")}
+  const file = {...baseFile, encodedName: new TextEncoder().encode("ÀPPNôTE.TXT")}
   const actual = unicodePathExtraField(file)
-  const expected = BufferFromHex("7570120001bae4630b")
+  const expected = BufferFromHex("757016000186d8470a")
   assertEquals(actual, expected)
 })

@@ -22,21 +22,27 @@ export async function* loadFiles(files: ForAwaitable<ZipFileDescription>) {
 
   // write files
   for await (const file of files) {
-    yield fileHeader(file)
+    const hasUtf8Path = !!file.encodedName.find(c => c > 127);
+    yield fileHeader(file, hasUtf8Path)
     yield file.encodedName
+    if (hasUtf8Path) {
+      yield unicodePathExtraField(file)
+      yield file.encodedName;
+    }
     yield* fileData(file)
     const fileNeedsZip64 = file.uncompressedSize! >= 0xffffffffn || offset >= 0xffffffffn
     yield dataDescriptor(file, fileNeedsZip64)
     
-    centralRecord.push(centralHeader(file, offset, fileNeedsZip64))
+    centralRecord.push(centralHeader(file, offset, fileNeedsZip64, hasUtf8Path))
     centralRecord.push(file.encodedName)
     if (fileNeedsZip64) {
       centralRecord.push(zip64ExtraField(file, offset))
       offset += 8n
     }
-    if (file.utf8) {
+    if (hasUtf8Path) {
       centralRecord.push(unicodePathExtraField(file))
-      centralRecord.push(file.utf8);
+      centralRecord.push(file.encodedName)
+      offset += BigInt(file.encodedName.byteLength + unicodeHeaderLength)
     }
     fileCount++
     offset += BigInt(fileHeaderLength + descriptorLength + file.encodedName.length) + file.uncompressedSize!
@@ -81,7 +87,7 @@ export async function* loadFiles(files: ForAwaitable<ZipFileDescription>) {
   yield makeUint8Array(end)
 }
 
-export function fileHeader(file: ZipFileDescription) {
+export function fileHeader(file: ZipFileDescription, hasUtf8Path: boolean) {
   const header = makeBuffer(fileHeaderLength)
   header.setUint32(0, fileHeaderSignature)
   header.setUint32(4, 0x2d_00_0800) // ZIP version 4.5 | flags, bit 3 on = size and CRCs will be zero
@@ -90,7 +96,9 @@ export function fileHeader(file: ZipFileDescription) {
   // leave CRC = zero (4 bytes) because we'll write it later, in the central repo
   // leave lengths = zero (2x4 bytes) because we'll write them later, in the central repo
   header.setUint16(26, file.encodedName.length, true)
-  // leave extra field length = zero (2 bytes)
+  if (hasUtf8Path) {
+    header.setUint16(28, file.encodedName.length + unicodeHeaderLength, true)
+  }
   return makeUint8Array(header)
 }
 
@@ -128,8 +136,8 @@ export function dataDescriptor(file: ZipFileDescription, needsZip64: boolean) {
   return makeUint8Array(header)
 }
 
-export function centralHeader(file: ZipFileDescription, offset: bigint, needsZip64: boolean) {
-  const extraFieldsLength = (needsZip64 ? zip64HeaderLength : 0) + (file.utf8 ? file.utf8.byteLength + unicodeHeaderLength : 0)
+export function centralHeader(file: ZipFileDescription, offset: bigint, needsZip64: boolean, hasUtf8Path: boolean) {
+  const extraFieldsLength = (needsZip64 ? zip64HeaderLength : 0) + (hasUtf8Path ? file.encodedName.byteLength + unicodeHeaderLength : 0)
   const header = makeBuffer(centralHeaderLength)
   header.setUint32(0, centralHeaderSignature)
   header.setUint32(4, 0x2d03_2d_00) // UNIX app version 4.5 | ZIP version 4.5
@@ -169,9 +177,9 @@ export function unicodePathExtraField(file: ZipFileDescription) {
 
   const header = makeBuffer(unicodeHeaderLength)
   header.setUint16(0, 0x7075, true)
-  header.setUint16(2, unicodeHeaderLength - 4 + file!.utf8!.byteLength, true)
+  header.setUint16(2, unicodeHeaderLength + file.encodedName.byteLength, true)
   header.setUint8(4, 1)
-  header.setUint32(5, crc32(file!.encodedName), true)
+  header.setUint32(5, crc32(file.encodedName), true)
 
   return makeUint8Array(header)
 }
